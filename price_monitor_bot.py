@@ -206,6 +206,7 @@ def fetch_aster_price(
         timeout=config.request_timeout,
         max_retries=config.max_retries,
         backoff_factor=config.backoff_factor,
+        params={"symbol": config.aster_symbol},
     )
     if not response:
         return None
@@ -214,6 +215,27 @@ def fetch_aster_price(
     except json.JSONDecodeError:
         LOGGER.error("Invalid JSON received from Aster API: %s", response.text)
         return None
+    # The Aster API returns either a single object when the ``symbol`` query
+    # parameter is supplied or a list of ticker objects when omitted.  Some
+    # deployments have been observed to return the list variant even when a
+    # symbol is provided, so we defensively handle both formats here.
+    if isinstance(payload, list):
+        matching = next(
+            (
+                item
+                for item in payload
+                if isinstance(item, dict)
+                and item.get("symbol") == config.aster_symbol
+            ),
+            None,
+        )
+        if matching is None and payload:
+            matching = payload[0] if isinstance(payload[0], dict) else None
+        payload = matching or {}
+    if not isinstance(payload, dict):
+        LOGGER.error("Unexpected payload from Aster API: %s", payload)
+        return None
+
     price = payload.get("price")
     try:
         return float(price)
@@ -250,6 +272,17 @@ def fetch_dexscreener_price(
         return None
 
     pair_info = payload.get("pair")
+    if pair_info is None and isinstance(payload.get("pairs"), list):
+        # Some Dexscreener endpoints respond with a ``pairs`` list rather than
+        # a single ``pair`` object.  Prefer an entry that matches the configured
+        # chain/pair identifiers to keep the behaviour deterministic.
+        for item in payload["pairs"]:
+            if isinstance(item, dict) and item.get("pairAddress") == config.dexscreener_pair_id:
+                pair_info = item
+                break
+        else:
+            first = payload["pairs"][0] if payload["pairs"] else None
+            pair_info = first if isinstance(first, dict) else None
     if not isinstance(pair_info, dict):
         LOGGER.error("Unexpected payload from Dexscreener API: %s", payload)
         return None
