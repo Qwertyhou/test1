@@ -6,6 +6,8 @@ Telegram channel.  The bot is designed to be production ready with logging,
 retry logic, and graceful shutdown support.
 """
 from __future__ import annotations
+from dotenv import load_dotenv
+load_dotenv()
 
 import json
 import logging
